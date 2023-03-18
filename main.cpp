@@ -1,6 +1,7 @@
 #include <igl/readOBJ.h>
 #include <igl/internal_angles.h>
 #include <igl/unproject_in_mesh.h>
+#include <igl/unproject_ray.h>
 
 #include <igl/opengl/glfw/Viewer.h>
 #include <igl/opengl/glfw/imgui/ImGuiPlugin.h>
@@ -54,6 +55,7 @@ int output_f = 0;
 
 inline Eigen::MatrixXd from_2D_to_3D(const Eigen::MatrixXd& V_2D);
 int get_vertex_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F);
+int get_face_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F);
 bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y);
@@ -323,6 +325,26 @@ int get_vertex_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F)
 	return vi;
 }
 
+int get_face_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F)
+{
+	// Cast a ray in the view direction starting from the mouse position
+	double x = viewer.current_mouse_x;
+	double y = viewer.core().viewport(3) - viewer.current_mouse_y;
+	Eigen::RowVector3d pt;
+	Eigen::Matrix4f modelview = viewer.core().view;
+	int vi = -1;
+	std::vector<igl::Hit> hits;
+	igl::unproject_in_mesh(Eigen::Vector2f(x, y), viewer.core().view, viewer.core().proj, viewer.core().viewport, V, F, pt, hits);
+	Eigen::Vector3f s, dir;
+	igl::unproject_ray(Eigen::Vector2f(x, y), viewer.core().view, viewer.core().proj, viewer.core().viewport, s, dir);
+	int fi = -1;
+	if (hits.size() > 0)
+	{
+		fi = hits[0].id;
+	}
+	return fi;
+}
+
 bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 	viewer.data().clear_points();
 	viewer.data().clear_labels();
@@ -477,6 +499,7 @@ bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int /*modifier*/)
 
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 {
+	output_f = get_face_from_mouse(from_2D_to_3D(V_2D), F);
 	if (mouse_p.is_moving) {
 		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, mouse_p.v_down_pos, viewer.core());
 		Eigen::RowVector3d new_pos = mouse_p.v_down_pos + translation;
