@@ -24,6 +24,7 @@
 
 Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
 Eigen::MatrixXi F;
+std::vector<Eigen::Matrix2d> rest_shapes;
 igl::opengl::glfw::Viewer viewer;
 std::vector<int> pin_indices;
 std::vector<Eigen::RowVector2d> pin_coord;
@@ -46,6 +47,10 @@ mouse_params mouse_p;
 double SD_weight = 0.01;
 double RT_weight = 5;
 double pin_vertices_weight = 100;
+bool show_bounding_box = true;
+bool show_rotate_per_face = true;
+bool show_max_angle_per_face = false;
+int output_f = 0;
 
 inline Eigen::MatrixXd from_2D_to_3D(const Eigen::MatrixXd& V_2D);
 int get_vertex_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F);
@@ -54,10 +59,10 @@ bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y);
 bool pre_draw(igl::opengl::glfw::Viewer& viewer);
 Eigen::RowVector3d computeTranslation(const int mouse_x, const int from_x, const int mouse_y, const int from_y, const Eigen::RowVector3d pt3D, igl::opengl::ViewerCore& core);
-  
+
 int main()
 {
-	std::string file_path= igl::file_dialog_open();
+	std::string file_path = igl::file_dialog_open();
 	if (file_path.length() == 0) {
 		std::cerr << "Couldn't get file path!" << std::endl;
 		return -1;
@@ -70,7 +75,7 @@ int main()
 	V_2D = V_2D_origin;
 
 	// Pre-compute triangle rest shapes in local coordinate systems
-	std::vector<Eigen::Matrix2d> rest_shapes(F.rows());
+	rest_shapes.resize(F.rows());
 	for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
 	{
 		// Express a, b, c in local 2D coordiante system
@@ -97,6 +102,88 @@ int main()
 	igl::opengl::glfw::imgui::ImGuiMenu menu;
 	plugin.widgets.push_back(&menu);
 	viewer.plugins.push_back(&plugin);
+
+	menu.callback_draw_viewer_menu = [&]()
+	{
+		if (ImGui::CollapsingHeader("Objectives weights", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			if (ImGui::InputDouble("Symmetric Dirichlet", &SD_weight, 0, 0, "%.4f"))
+			{
+				SD_weight = std::max<double>(0, SD_weight);
+			}
+			if (ImGui::InputDouble("Rectangle", &RT_weight, 0, 0, "%.4f"))
+			{
+				RT_weight = std::max<double>(0, RT_weight);
+			}
+			if (ImGui::InputDouble("Pin vertices", &pin_vertices_weight, 0, 0, "%.4f"))
+			{
+				pin_vertices_weight = std::max<double>(0, pin_vertices_weight);
+			}
+		}
+		ImGui::Checkbox("show_bounding_box", &show_bounding_box);
+		ImGui::Checkbox("show_rotate_per_face", &show_rotate_per_face);
+		ImGui::Checkbox("show_max_angle_per_face", &show_max_angle_per_face);
+		// Draw parent menu content
+		menu.draw_viewer_menu();
+	};
+
+	// Draw additional windows
+	menu.callback_draw_custom_window = [&]()
+	{
+		if (output_f < 0) {
+			return;
+		}
+		// Define next window position + size
+		ImGui::SetNextWindowPos(ImVec2(180.f * menu.menu_scaling(), 10), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(500, 160), ImGuiCond_FirstUseEver);
+		ImGui::Begin(std::string("Face " + std::to_string(output_f)).c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings);
+		
+		Eigen::Vector2d a = V_2D.row(F(output_f, 0)).transpose();
+		Eigen::Vector2d b = V_2D.row(F(output_f, 1)).transpose();
+		Eigen::Vector2d c = V_2D.row(F(output_f, 2)).transpose();
+		Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
+		Eigen::Matrix2d Mr = rest_shapes[output_f];
+		Eigen::Matrix2d J = M * Mr.inverse();
+		Eigen::JacobiSVD<Eigen::Matrix2d> svd;
+		svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
+		Eigen::Matrix2d U = svd.matrixU();
+		Eigen::Matrix2d V = svd.matrixV();
+		Eigen::Vector2d S = svd.singularValues();
+		ImGui::Text("             J                    =                 U               *          S        *                V\n");
+		ImGui::Text("(%9.4f, %9.4f) = (%9.4f, %9.4f) * (%9.4f) * (%9.4f, %9.4f)\n",
+			J(0, 0), J(0, 1),
+			U(0, 0), U(0, 1),
+			S(0),
+			V(0, 0), V(0, 1));
+		ImGui::Text("(%9.4f, %9.4f)    (%9.4f, %9.4f)    (%9.4f)    (%9.4f, %9.4f)\n\n",
+			J(1, 0), J(1, 1),
+			U(1, 0), U(1, 1),
+			S(1),
+			V(1, 0), V(1, 1));
+		
+		Eigen::MatrixXd triangele_angles;
+		igl::internal_angles(V_2D, F, triangele_angles);
+		double triangle_max_angle = triangele_angles.row(output_f).maxCoeff() * 180.0 / M_PI;
+
+		ImGui::Text("Biggest angle (degrees) = %.4f (== 90)\n", triangle_max_angle);
+		{
+			double a = J(0, 0);
+			double b = J(0, 1);
+			double c = J(1, 0);
+			double d = J(1, 1);
+			// y = 2ab + 2cd
+			double y = 2 * a*b + 2 * c*d;
+			// x = a^2 - b^2 + c^2 - d^2
+			double x = std::pow(a, 2) - std::pow(b, 2) + std::pow(c, 2) - std::pow(d, 2);
+			double theta_angle_radians = 0.5 * atan2(y, x);
+			double theta_angle_degrees = theta_angle_radians * 180.0 / M_PI;
+			ImGui::Text("V rotation angle (degrees) = %.4f (== {0,90,-90,180})\n", theta_angle_radians);
+			ImGui::Text("x = %.4f (!= 0)\n", x);
+			ImGui::Text("y = %.4f (== 0)\n", y);
+		}
+
+		ImGui::End();
+	};
 
 	// Attach callback to allow toggling between 3D and 2D view
 	viewer.callback_mouse_down = mouse_down;
@@ -186,53 +273,7 @@ int main()
 			// Write final x vector to P matrix.
 			// x_to_data(...) takes a lambda function that writes the final value
 			// of each variable (Eigen::Vector2d) back to our P matrix.
-			func.x_to_data(x, [&](int v_idx, const Eigen::Vector2d& p) {V_2D.row(v_idx) = p; });
-
-
-			viewer.data().clear_labels();
-			viewer.data().show_custom_labels = true;
-			for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
-			{
-				Eigen::Vector2d a = V_2D.row(F(f_idx, 0)).transpose();
-				Eigen::Vector2d b = V_2D.row(F(f_idx, 1)).transpose();
-				Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
-				Eigen::Vector2d label_pos = (a + b + c) / 3;
-				Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
-				Eigen::Matrix2d Mr = rest_shapes[f_idx];
-				Eigen::Matrix2d J = M * Mr.inverse();
-				Eigen::JacobiSVD<Eigen::Matrix2d> svd;
-				svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
-
-				std::cout << std::endl << std::endl << "f_idx: " << f_idx << std::endl;
-				std::cout << "J:" << std::endl << J << std::endl;
-				std::cout << "U:" << std::endl << svd.matrixU() << std::endl;
-				std::cout << "S:" << std::endl << svd.singularValues() << std::endl;
-				std::cout << "V:" << std::endl << svd.matrixV() << std::endl;
-
-				Eigen::MatrixXd triangele_angles;
-				igl::internal_angles(V_2D, F, triangele_angles);
-				double triangle_max_angle = triangele_angles.row(f_idx).maxCoeff() * 180.0 / M_PI;
-				std::cout << "max angle: " << triangle_max_angle << std::endl;
-				
-
-				{
-					double a = J(0, 0);
-					double b = J(0, 1);
-					double c = J(1, 0);
-					double d = J(1, 1);
-					
-					// y = 2ab + 2cd
-					double y = 2 * a*b + 2 * c*d;
-					// x = a^2 - b^2 + c^2 - d^2
-					double x = std::pow(a, 2) - std::pow(b, 2) + std::pow(c, 2) - std::pow(d, 2);
-					double theta_angle_radians = 0.5 * atan2(y, x);
-					std::cout << "V rotation angle: " << theta_angle_radians * 180.0 / M_PI << std::endl;
-					viewer.data().add_label(Eigen::Vector3d(label_pos(0), label_pos(1), 0), std::to_string(theta_angle_radians * 180.0 / M_PI));
-					std::cout << "x: " << x << std::endl;
-					std::cout << "y: " << y << std::endl;
-				}
-			}
-		
+			func.x_to_data(x, [&](int v_idx, const Eigen::Vector2d& p) {V_2D.row(v_idx) = p; });	
 			viewer.data().set_vertices(V_2D);
 		}
 
@@ -283,8 +324,11 @@ int get_vertex_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F)
 }
 
 bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
-	// View the pinned vertices on the screen
 	viewer.data().clear_points();
+	viewer.data().clear_labels();
+	viewer.data().clear_edges();
+	// activate label rendering
+	viewer.data().show_custom_labels = true;
 
 	// Add pinned vertices
 	for (int pin_idx = 0; pin_idx < pin_indices.size(); pin_idx++) {
@@ -296,6 +340,7 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 	}
 
 	// Add bounding box
+	if(show_bounding_box)
 	{
 		static Eigen::Vector2d m = V_2D_origin.colwise().minCoeff();
 		static Eigen::Vector2d M = V_2D_origin.colwise().maxCoeff();
@@ -335,8 +380,46 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 		std::stringstream l2;
 		l2 << "(" << M(0) << ", " << M(1) << ")";
 		viewer.data().add_label(Eigen::Vector3d(M(0) + 0.1, M(1) + 0.1, 0), l2.str());
-		// activate label rendering
-		viewer.data().show_custom_labels = true;
+	}
+
+	if (show_max_angle_per_face || show_rotate_per_face) 
+	{
+		for (int f_idx = 0; f_idx < F.rows(); f_idx++) {
+			Eigen::Vector2d a = V_2D.row(F(f_idx, 0)).transpose();
+			Eigen::Vector2d b = V_2D.row(F(f_idx, 1)).transpose();
+			Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
+			Eigen::Vector2d label_pos = (a + b + c) / 3;
+			Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
+			Eigen::Matrix2d Mr = rest_shapes[f_idx];
+			Eigen::Matrix2d J = M * Mr.inverse();
+			Eigen::JacobiSVD<Eigen::Matrix2d> svd;
+			svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			Eigen::Matrix2d U = svd.matrixU();
+			Eigen::Matrix2d V = svd.matrixV();
+			Eigen::Vector2d S = svd.singularValues();
+			Eigen::MatrixXd triangele_angles;
+			igl::internal_angles(V_2D, F, triangele_angles);
+			double triangle_max_angle = triangele_angles.row(f_idx).maxCoeff() * 180.0 / M_PI;
+
+			if (show_max_angle_per_face) 
+			{
+				viewer.data().add_label(Eigen::Vector3d(label_pos(0), label_pos(1), 0), std::to_string(triangle_max_angle));
+			}
+			if (show_rotate_per_face)
+			{
+				double a = J(0, 0);
+				double b = J(0, 1);
+				double c = J(1, 0);
+				double d = J(1, 1);
+				// y = 2ab + 2cd
+				double y = 2 * a*b + 2 * c*d;
+				// x = a^2 - b^2 + c^2 - d^2
+				double x = std::pow(a, 2) - std::pow(b, 2) + std::pow(c, 2) - std::pow(d, 2);
+				double theta_angle_radians = 0.5 * atan2(y, x);
+				double theta_angle_degrees = theta_angle_radians * 180.0 / M_PI;
+				viewer.data().add_label(Eigen::Vector3d(label_pos(0), label_pos(1), 0), std::to_string(theta_angle_degrees));
+			}
+		}
 	}
 	
 	return false;
