@@ -21,6 +21,10 @@
 #include <mutex>
 #include <thread>
 
+#define BLUE_COLOR (Eigen::RowVector3d(0, 0, 1))
+#define GREEN_COLOR (Eigen::RowVector3d(0, 1, 0))
+#define RED_COLOR (Eigen::RowVector3d(1, 0, 0))
+
 #ifndef M_PI
 #    define M_PI 3.14159265358979323846
 #endif
@@ -31,18 +35,22 @@ std::vector<Eigen::Matrix2d> rest_shapes;
 igl::opengl::glfw::Viewer viewer;
 
 std::vector<bool> is_vertex_pinned;
+std::vector<bool> is_group_vertex;
 std::vector<Eigen::RowVector2d> pin_coord;
+std::vector<Eigen::RowVector3d> v_down_pos;
 
+enum mouse_mode {PICK_SINGLE_VERTEX, PICK_GROUP_OF_VERTICES};
 class mouse_params {
 public:
 	bool is_moving;
 	int active_v_idx;
-	Eigen::RowVector3d v_down_pos;
 	int down_mouse_x, down_mouse_y;
+	enum mouse_mode mode;
 
 	mouse_params() {
 		this->is_moving = false;
 		this->active_v_idx = -1;
+		this->mode = PICK_SINGLE_VERTEX;
 	}
 };
 
@@ -82,10 +90,13 @@ int main()
 	V_2D = V_2D_origin;
 
 	is_vertex_pinned.resize(V_2D.rows());
+	is_group_vertex.resize(V_2D.rows());
 	for (int i = 0; i < is_vertex_pinned.size(); i++) {
 		is_vertex_pinned[i] = false;
+		is_group_vertex[i] = false;
 	}
 	pin_coord.resize(V_2D.rows());
+	v_down_pos.resize(V_2D.rows());
 
 	// Pre-compute triangle rest shapes in local coordinate systems
 	rest_shapes.resize(F.rows());
@@ -204,11 +215,21 @@ int main()
 	viewer.callback_pre_draw = pre_draw;
 	viewer.callback_key_pressed = [&](igl::opengl::glfw::Viewer& viewer, unsigned int key, int /*mod*/)
 	{
-		if (key == '1' || key == '2')
+		if (key == '1')
 		{
 			// Switch between original & current model
-			viewer.data().set_vertices(key == '1' ? from_2D_to_3D(V_2D) : from_2D_to_3D(V_2D_origin));
+			static int is_original_model = 0;
+			viewer.data().set_vertices(is_original_model ? from_2D_to_3D(V_2D_origin) : from_2D_to_3D(V_2D));
+			is_original_model = !is_original_model;
 			return true;
+		}
+		if (key == '2') {
+			if (mouse_p.mode == PICK_GROUP_OF_VERTICES) {
+				mouse_p.mode = PICK_SINGLE_VERTEX;
+			}
+			else {
+				mouse_p.mode = PICK_GROUP_OF_VERTICES;
+			}	
 		}
 		if (key == ' ') 
 		{	
@@ -377,8 +398,8 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 		if (is_vertex_pinned[vi]) {
 			Eigen::RowVector2d v_target = pin_coord[vi];
 			Eigen::RowVector2d v_current = V_2D.row(vi);
-			viewer.data().add_points(Eigen::RowVector3d(v_current(0), v_current(1), 0), Eigen::RowVector3d(0, 0, 1));
-			viewer.data().add_points(Eigen::RowVector3d(v_target(0), v_target(1), 0), Eigen::RowVector3d(1, 0, 0));
+			viewer.data().add_points(Eigen::RowVector3d(v_current(0), v_current(1), 0), (is_group_vertex[vi]) ? GREEN_COLOR : BLUE_COLOR);
+			viewer.data().add_points(Eigen::RowVector3d(v_target(0), v_target(1), 0), RED_COLOR);
 		}
 	}
 
@@ -405,14 +426,14 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 			3, 0;
 
 		// Plot the corners of the bounding box as points
-		viewer.data().add_points(V_box, Eigen::RowVector3d(1, 0, 0));
+		viewer.data().add_points(V_box, RED_COLOR);
 
 		// Plot the edges of the bounding box
 		for (unsigned i = 0; i < E_box.rows(); ++i) {
 			viewer.data().add_edges(
 				V_box.row(E_box(i, 0)),
 				V_box.row(E_box(i, 1)),
-				Eigen::RowVector3d(1, 0, 0)
+				RED_COLOR
 			);
 		}
 
@@ -486,15 +507,18 @@ bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int /*modifier*/)
 		{ 
 			// Remove vertex
 			is_vertex_pinned[v_idx] = false;
+			is_group_vertex[v_idx] = false;
 		}
 		if (LeftClick) {
 			// Add vertex
 			mouse_p.is_moving = true;
 			mouse_p.down_mouse_x = viewer.current_mouse_x;
 			mouse_p.down_mouse_y = viewer.current_mouse_y;
-			mouse_p.v_down_pos = Eigen::RowVector3d(V_2D(v_idx, 0), V_2D(v_idx, 1), 0);
+			v_down_pos[v_idx] = Eigen::RowVector3d(V_2D(v_idx, 0), V_2D(v_idx, 1), 0);
 			mouse_p.active_v_idx = v_idx;
-
+			if (mouse_p.mode == PICK_GROUP_OF_VERTICES) {
+				is_group_vertex[v_idx] = true;
+			}
 			is_vertex_pinned[v_idx] = true;
 			pin_coord[v_idx] = V_2D.row(v_idx);
 		}
@@ -507,9 +531,19 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 {
 	output_f = get_face_from_mouse(from_2D_to_3D(V_2D), F);
 	if (mouse_p.is_moving) {
-		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, mouse_p.v_down_pos, viewer.core());
-		Eigen::RowVector3d new_pos = mouse_p.v_down_pos + translation;
-		pin_coord[mouse_p.active_v_idx] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, v_down_pos[mouse_p.active_v_idx], viewer.core());
+		if (mouse_p.mode == PICK_SINGLE_VERTEX) {
+			Eigen::RowVector3d new_pos = v_down_pos[mouse_p.active_v_idx] + translation;
+			pin_coord[mouse_p.active_v_idx] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+		}
+		else if (mouse_p.mode == PICK_GROUP_OF_VERTICES) {
+			for (int vi = 0; vi < V_2D.rows(); vi++) {
+				if (is_group_vertex[vi]) {
+					Eigen::RowVector3d new_pos = v_down_pos[vi] + translation;
+					pin_coord[vi] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+				}	
+			}
+		}
 		return true;
 	}
 	return false;
