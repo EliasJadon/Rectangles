@@ -18,6 +18,8 @@
 
 #include <igl/opengl/glfw/Viewer.h>
 #include <math.h>
+#include <mutex>
+#include <thread>
 
 #ifndef M_PI
 #    define M_PI 3.14159265358979323846
@@ -27,19 +29,20 @@ Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
 Eigen::MatrixXi F;
 std::vector<Eigen::Matrix2d> rest_shapes;
 igl::opengl::glfw::Viewer viewer;
-std::vector<int> pin_indices;
+
+std::vector<bool> is_vertex_pinned;
 std::vector<Eigen::RowVector2d> pin_coord;
 
 class mouse_params {
 public:
 	bool is_moving;
-	int pin_idx;
+	int active_v_idx;
 	Eigen::RowVector3d v_down_pos;
 	int down_mouse_x, down_mouse_y;
 
 	mouse_params() {
 		this->is_moving = false;
-		this->pin_idx = -1;
+		this->active_v_idx = -1;
 	}
 };
 
@@ -76,6 +79,12 @@ int main()
 	V_2D_origin = V_3D.leftCols(2);
 	V_2D = V_2D_origin;
 
+	is_vertex_pinned.resize(V_2D.rows());
+	for (int i = 0; i < is_vertex_pinned.size(); i++) {
+		is_vertex_pinned[i] = false;
+	}
+	pin_coord.resize(V_2D.rows());
+
 	// Pre-compute triangle rest shapes in local coordinate systems
 	rest_shapes.resize(F.rows());
 	for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
@@ -90,7 +99,6 @@ int main()
 	};
 
 	viewer.data().set_mesh(from_2D_to_3D(V_2D), F);
-	//viewer.data().set_uv(P);
 	viewer.data().set_vertices(from_2D_to_3D(V_2D));
 	viewer.data().compute_normals();
 
@@ -242,11 +250,15 @@ int main()
 			});
 
 			// Add penalty term per constrained vertex.
-			func.add_elements<1>(TinyAD::range(pin_indices.size()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
+			func.add_elements<1>(TinyAD::range(V_2D.rows()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
 			{
 				// Evaluate element using either double or TinyAD::Double
 				using T = TINYAD_SCALAR_TYPE(element);
-				Eigen::Vector2<T> p = element.variables(pin_indices[element.handle]);
+				if (!is_vertex_pinned[element.handle]) 
+				{
+					return 0;
+				}
+				Eigen::Vector2<T> p = element.variables(element.handle);
 				Eigen::Vector2d p_target = pin_coord[element.handle].transpose();
 				return pin_vertices_weight * (p_target - p).squaredNorm();
 			});
@@ -353,12 +365,14 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 	viewer.data().show_custom_labels = true;
 
 	// Add pinned vertices
-	for (int pin_idx = 0; pin_idx < pin_indices.size(); pin_idx++) {
-		int v_idx = pin_indices[pin_idx];
-		Eigen::RowVector2d v_target = pin_coord[pin_idx];
-		Eigen::RowVector2d v_current = V_2D.row(v_idx);
-		viewer.data().add_points(Eigen::RowVector3d(v_current(0), v_current(1), 0), Eigen::RowVector3d(0, 0, 1));
-		viewer.data().add_points(Eigen::RowVector3d(v_target(0), v_target(1), 0), Eigen::RowVector3d(1, 0, 0));
+	for (int vi = 0; vi < is_vertex_pinned.size(); vi++) 
+	{
+		if (is_vertex_pinned[vi]) {
+			Eigen::RowVector2d v_target = pin_coord[vi];
+			Eigen::RowVector2d v_current = V_2D.row(vi);
+			viewer.data().add_points(Eigen::RowVector3d(v_current(0), v_current(1), 0), Eigen::RowVector3d(0, 0, 1));
+			viewer.data().add_points(Eigen::RowVector3d(v_target(0), v_target(1), 0), Eigen::RowVector3d(1, 0, 0));
+		}
 	}
 
 	// Add bounding box
@@ -461,37 +475,22 @@ bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int /*modifier*/)
 	int v_idx = get_vertex_from_mouse(from_2D_to_3D(V_2D), F);
 	if (v_idx >= 0 /*a vertex is found*/)
 	{
-		int idx=0;
-		bool is_vertex_already_exist = false;
-		for (; idx < pin_indices.size(); idx++) {
-			if (pin_indices[idx] == v_idx) {
-				is_vertex_already_exist = true;
-				break;
-			}
-		}
-		if (RightClick && is_vertex_already_exist) 
+		if (RightClick) 
 		{ 
 			// Remove vertex
-			pin_indices.erase(pin_indices.begin() + idx);
-			pin_coord.erase(pin_coord.begin() + idx);
+			is_vertex_pinned[v_idx] = false;
 		}
 		if (LeftClick) {
+			// Add vertex
 			mouse_p.is_moving = true;
 			mouse_p.down_mouse_x = viewer.current_mouse_x;
 			mouse_p.down_mouse_y = viewer.current_mouse_y;
 			mouse_p.v_down_pos = Eigen::RowVector3d(V_2D(v_idx, 0), V_2D(v_idx, 1), 0);
+			mouse_p.active_v_idx = v_idx;
 
-			if (is_vertex_already_exist) {
-				mouse_p.pin_idx = idx;
-			}
-			else {
-				// Add vertex 
-				pin_indices.push_back(v_idx);
-				pin_coord.push_back(V_2D.row(v_idx));
-				mouse_p.pin_idx = pin_indices.size() - 1;
-			}
+			is_vertex_pinned[v_idx] = true;
+			pin_coord[v_idx] = V_2D.row(v_idx);
 		}
-			
 		return true;
 	}
 	return false;
@@ -503,7 +502,7 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 	if (mouse_p.is_moving) {
 		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, mouse_p.v_down_pos, viewer.core());
 		Eigen::RowVector3d new_pos = mouse_p.v_down_pos + translation;
-		pin_coord[mouse_p.pin_idx] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+		pin_coord[mouse_p.active_v_idx] = Eigen::RowVector2d(new_pos(0), new_pos(1));
 		return true;
 	}
 	return false;
