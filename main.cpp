@@ -47,6 +47,8 @@ public:
 };
 
 mouse_params mouse_p;
+bool run_optimizer = false;
+bool kill_optimizer_process = false;
 
 double SD_weight = 0.01;
 double RT_weight = 5;
@@ -206,95 +208,100 @@ int main()
 		{
 			// Switch between original & current model
 			viewer.data().set_vertices(key == '1' ? from_2D_to_3D(V_2D) : from_2D_to_3D(V_2D_origin));
-			return true; 
+			return true;
 		}
 		if (key == ' ') 
 		{	
-			// Set up function with 2D vertex positions as variables.
-			auto func = TinyAD::scalar_function<2>(TinyAD::range(V_2D.rows()));
-
-			// Add objective term per face. Each connecting 3 vertices.
-			func.add_elements<3>(TinyAD::range(F.rows()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
-			{
-				// Evaluate element using either double or TinyAD::Double
-				using T = TINYAD_SCALAR_TYPE(element);
-
-				// Get variable 2D vertex positions
-				Eigen::Index f_idx = element.handle;
-				Eigen::Vector2<T> a = element.variables(F(f_idx, 0));
-				Eigen::Vector2<T> b = element.variables(F(f_idx, 1));
-				Eigen::Vector2<T> c = element.variables(F(f_idx, 2));
-
-				// Triangle flipped?
-				Eigen::Matrix2<T> M = TinyAD::col_mat(b - a, c - a);
-				if (M.determinant() <= 0.0)
-					return (T)INFINITY;
-
-				// Get constant 2D rest shape of f
-				Eigen::Matrix2d Mr = rest_shapes[f_idx];
-				double A = 0.5 * Mr.determinant();
-
-				// Compute symmetric Dirichlet energy
-				Eigen::Matrix2<T> J = M * Mr.inverse();
-
-				T result = 0;
-				// Rectangle energy
-				// A * (a*b+c*d)^2
-				result += RT_weight * (A * (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
-
-				// Symmetric Dirichlet energy
-				result += SD_weight * A * (J.squaredNorm() + J.inverse().squaredNorm());
-
-
-				return result;
-			});
-
-			// Add penalty term per constrained vertex.
-			func.add_elements<1>(TinyAD::range(V_2D.rows()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
-			{
-				// Evaluate element using either double or TinyAD::Double
-				using T = TINYAD_SCALAR_TYPE(element);
-				if (!is_vertex_pinned[element.handle]) 
-				{
-					return 0;
-				}
-				Eigen::Vector2<T> p = element.variables(element.handle);
-				Eigen::Vector2d p_target = pin_coord[element.handle].transpose();
-				return pin_vertices_weight * (p_target - p).squaredNorm();
-			});
-
-			// Assemble inital x vector from P matrix.
-			// x_from_data(...) takes a lambda function that maps
-			// each variable handle (vertex index) to its initial 2D value (Eigen::Vector2d).
-			Eigen::VectorXd x = func.x_from_data([&](int v_idx) { return V_2D.row(v_idx); });
-
-			// Projected Newton
-			TinyAD::LinearSolver solver;
-			int max_iters = 1000;
-			double convergence_eps = 1e-2;
-			for (int i = 0; i < max_iters; ++i)
-			{
-				std::cout << "> iter " << i << ": (" << pin_coord[1](0) << ", 0)" << std::endl;
-				auto[f, g, H_proj] = func.eval_with_hessian_proj(x);
-				TINYAD_DEBUG_OUT("Energy in iteration " << i << ": " << f);
-				Eigen::VectorXd d = TinyAD::newton_direction(g, H_proj, solver);
-				if (TinyAD::newton_decrement(d, g) < convergence_eps)
-					break;
-				x = TinyAD::line_search(x, d, f, g, func);
-			}
-			TINYAD_DEBUG_OUT("Final energy: " << func.eval(x));
-
-			// Write final x vector to P matrix.
-			// x_to_data(...) takes a lambda function that writes the final value
-			// of each variable (Eigen::Vector2d) back to our P matrix.
-			func.x_to_data(x, [&](int v_idx, const Eigen::Vector2d& p) {V_2D.row(v_idx) = p; });	
-			viewer.data().set_vertices(V_2D);
+			run_optimizer = !run_optimizer;
 		}
 
 		return false; // key press not used
 	};
 
+
+	std::thread optimization_thread(
+		[&]()
+		{
+		// Set up function with 2D vertex positions as variables.
+		auto func = TinyAD::scalar_function<2>(TinyAD::range(V_2D.rows()));
+
+		// Add objective term per face. Each connecting 3 vertices.
+		func.add_elements<3>(TinyAD::range(F.rows()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
+		{
+			// Evaluate element using either double or TinyAD::Double
+			using T = TINYAD_SCALAR_TYPE(element);
+
+			// Get variable 2D vertex positions
+			Eigen::Index f_idx = element.handle;
+			Eigen::Vector2<T> a = element.variables(F(f_idx, 0));
+			Eigen::Vector2<T> b = element.variables(F(f_idx, 1));
+			Eigen::Vector2<T> c = element.variables(F(f_idx, 2));
+
+			// Triangle flipped?
+			Eigen::Matrix2<T> M = TinyAD::col_mat(b - a, c - a);
+			if (M.determinant() <= 0.0)
+				return (T)INFINITY;
+
+			// Get constant 2D rest shape of f
+			Eigen::Matrix2d Mr = rest_shapes[f_idx];
+			double A = 0.5 * Mr.determinant();
+
+			// Compute symmetric Dirichlet energy
+			Eigen::Matrix2<T> J = M * Mr.inverse();
+
+			T result = 0;
+			// Rectangle energy
+			// A * (a*b+c*d)^2
+			result += RT_weight * (A * (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
+
+			// Symmetric Dirichlet energy
+			result += SD_weight * A * (J.squaredNorm() + J.inverse().squaredNorm());
+
+			return result;
+		});
+
+		// Add penalty term per constrained vertex.
+		func.add_elements<1>(TinyAD::range(V_2D.rows()), [&](auto& element)->TINYAD_SCALAR_TYPE(element)
+		{
+			// Evaluate element using either double or TinyAD::Double
+			using T = TINYAD_SCALAR_TYPE(element);
+			if (!is_vertex_pinned[element.handle])
+			{
+				return 0;
+			}
+			Eigen::Vector2<T> p = element.variables(element.handle);
+			Eigen::Vector2d p_target = pin_coord[element.handle].transpose();
+			return pin_vertices_weight * (p_target - p).squaredNorm();
+		});
+
+		// Assemble inital x vector from P matrix.
+		// x_from_data(...) takes a lambda function that maps
+		// each variable handle (vertex index) to its initial 2D value (Eigen::Vector2d).
+		Eigen::VectorXd x = func.x_from_data([&](int v_idx) { return V_2D.row(v_idx); });
+
+		// Projected Newton
+		TinyAD::LinearSolver solver;
+		unsigned long i = 0;
+		while (!kill_optimizer_process) {
+			if(run_optimizer)
+			{
+				auto[f, g, H_proj] = func.eval_with_hessian_proj(x);
+				TINYAD_DEBUG_OUT("Energy in iteration " << i++ << ": " << f);
+				Eigen::VectorXd d = TinyAD::newton_direction(g, H_proj, solver);
+				x = TinyAD::line_search(x, d, f, g, func);
+
+				func.x_to_data(x, [&](int v_idx, const Eigen::Vector2d& p) {V_2D.row(v_idx) = p; });
+				viewer.data().set_vertices(V_2D);
+			}
+		}
+		});
+
 	viewer.launch();
+	kill_optimizer_process = true;
+	if (optimization_thread.joinable())
+	{
+		optimization_thread.join();
+	}
 
 	return 0;
 }
