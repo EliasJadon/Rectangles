@@ -64,6 +64,7 @@ double pin_vertices_weight = 100;
 bool show_bounding_box = true;
 bool show_rotate_per_face = true;
 bool show_max_angle_per_face = false;
+bool show_output_data = true;
 int output_f = 0;
 
 inline Eigen::MatrixXd from_2D_to_3D(const Eigen::MatrixXd& V_2D);
@@ -146,6 +147,7 @@ int main()
 		ImGui::Checkbox("show_bounding_box", &show_bounding_box);
 		ImGui::Checkbox("show_rotate_per_face", &show_rotate_per_face);
 		ImGui::Checkbox("show_max_angle_per_face", &show_max_angle_per_face);
+		ImGui::Checkbox("show_output_data", &show_output_data);
 		// Draw parent menu content
 		menu.draw_viewer_menu();
 	};
@@ -153,7 +155,7 @@ int main()
 	// Draw additional windows
 	menu.callback_draw_custom_window = [&]()
 	{
-		if (output_f < 0) {
+		if (output_f < 0 || !show_output_data) {
 			return;
 		}
 		// Define next window position + size
