@@ -32,6 +32,8 @@
 Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
 Eigen::MatrixXi F;
 std::vector<Eigen::Matrix2d> rest_shapes;
+Eigen::RowVector2d B2(0, 1);
+Eigen::RowVector2d B1(1, 0);
 igl::opengl::glfw::Viewer viewer;
 
 std::vector<bool> is_vertex_pinned;
@@ -104,12 +106,16 @@ int main()
 	for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
 	{
 		// Express a, b, c in local 2D coordiante system
-		Eigen::Vector2d ar_2d = V_2D.row(F(f_idx, 0)).transpose();
-		Eigen::Vector2d br_2d = V_2D.row(F(f_idx, 1)).transpose();
-		Eigen::Vector2d cr_2d = V_2D.row(F(f_idx, 2)).transpose();
+		Eigen::Vector2d a = V_2D.row(F(f_idx, 0)).transpose();
+		Eigen::Vector2d b = V_2D.row(F(f_idx, 1)).transpose();
+		Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
+		Eigen::Vector2d e1 = b - a;
+		Eigen::Vector2d e2 = c - a;
+		e1 = Eigen::Vector2d(e1.dot(B1), e1.dot(B2));
+		e2 = Eigen::Vector2d(e2.dot(B1), e2.dot(B2));
 
 		// Save 2-by-2 matrix with edge vectors as colums
-		rest_shapes[f_idx] = TinyAD::col_mat(br_2d - ar_2d, cr_2d - ar_2d);
+		rest_shapes[f_idx] = TinyAD::col_mat(e1, e2);
 	};
 
 	viewer.data().set_mesh(from_2D_to_3D(V_2D), F);
@@ -319,7 +325,7 @@ int main()
 		}
 		});
 
-	viewer.launch();
+	viewer.launch(/*resizable*/ true, /*fullscreen*/ true, "Rectangle POC App");
 	kill_optimizer_process = true;
 	if (optimization_thread.joinable())
 	{
@@ -578,4 +584,31 @@ Eigen::RowVector3d computeTranslation(
 	Eigen::Vector3f translation;
 	translation = pos1 - pos0;
 	return Eigen::RowVector3d(translation(0), translation(1), translation(2));
+}
+
+void update_perpendicular_axis(Eigen::RowVector2d& B2, Eigen::RowVector2d& B1)
+{
+	const double epsilon = 0.001;
+	B2.normalize();
+
+	if (abs(B2(0)) < epsilon) {
+		if (B2(1) > 0) {
+			B2 = Eigen::RowVector2d(0, 1);
+			B1 = Eigen::RowVector2d(1, 0);
+		}
+		else {
+			B2 = Eigen::RowVector2d(0, -1);
+			B1 = Eigen::RowVector2d(-1, 0);
+		}
+		return;
+	}
+	
+	// Calculate the slope of a vector in 2D
+	double slope = B2(1) / B2(0);
+	double perpendicular_slope = -(1 / slope);
+
+	// Get the perpendicular axis
+	B1 = Eigen::RowVector2d(1, perpendicular_slope);
+	B1.normalize();
+	return;
 }
