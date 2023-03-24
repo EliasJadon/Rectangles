@@ -208,7 +208,7 @@ int main()
 			double x = std::pow(a, 2) - std::pow(b, 2) + std::pow(c, 2) - std::pow(d, 2);
 			double theta_angle_radians = 0.5 * atan2(y, x);
 			double theta_angle_degrees = theta_angle_radians * 180.0 / M_PI;
-			ImGui::Text("V rotation angle (degrees) = %.4f (== {0,90,-90,180})\n", theta_angle_radians);
+			ImGui::Text("V rotation angle (degrees) = %.4f (== {0,90,-90,180})\n", theta_angle_degrees);
 			ImGui::Text("x = %.4f (!= 0)\n", x);
 			ImGui::Text("y = %.4f (== 0)\n", y);
 		}
