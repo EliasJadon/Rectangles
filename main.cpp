@@ -534,15 +534,17 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 	output_f = get_face_from_mouse(from_2D_to_3D(V_2D), F);
 	if (mouse_p.is_moving) {
 		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, v_down_pos[mouse_p.active_v_idx], viewer.core());
+		mouse_p.down_mouse_x = mouse_x;
+		mouse_p.down_mouse_y = mouse_y;
 		if (mouse_p.mode == PICK_SINGLE_VERTEX) {
-			Eigen::RowVector3d new_pos = v_down_pos[mouse_p.active_v_idx] + translation;
-			pin_coord[mouse_p.active_v_idx] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+			v_down_pos[mouse_p.active_v_idx] = v_down_pos[mouse_p.active_v_idx] + translation;
+			pin_coord[mouse_p.active_v_idx] = Eigen::RowVector2d(v_down_pos[mouse_p.active_v_idx](0), v_down_pos[mouse_p.active_v_idx](1));
 		}
 		else if (mouse_p.mode == PICK_GROUP_OF_VERTICES) {
 			for (int vi = 0; vi < V_2D.rows(); vi++) {
 				if (is_group_vertex[vi]) {
-					Eigen::RowVector3d new_pos = v_down_pos[vi] + translation;
-					pin_coord[vi] = Eigen::RowVector2d(new_pos(0), new_pos(1));
+					v_down_pos[vi] = v_down_pos[vi] + translation;
+					pin_coord[vi] = Eigen::RowVector2d(v_down_pos[vi](0), v_down_pos[vi](1));
 				}	
 			}
 		}
