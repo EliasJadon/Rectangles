@@ -325,7 +325,7 @@ int main()
 		}
 		});
 
-	viewer.launch(/*resizable*/ true, /*fullscreen*/ true, "Rectangle POC App");
+	viewer.launch(/*resizable*/ true, /*fullscreen*/ false, "Rectangle POC App");
 	kill_optimizer_process = true;
 	if (optimization_thread.joinable())
 	{
@@ -394,6 +394,14 @@ int get_face_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F)
 }
 
 bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
+	{
+		static bool only_once = true;
+		if (only_once) {
+			only_once = false;
+			glfwMaximizeWindow(viewer.window);
+		}
+	}
+	
 	viewer.data().clear_points();
 	viewer.data().clear_labels();
 	viewer.data().clear_edges();
