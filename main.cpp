@@ -81,6 +81,7 @@ bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y);
 bool pre_draw(igl::opengl::glfw::Viewer& viewer);
 Eigen::RowVector3d computeTranslation(const int mouse_x, const int from_x, const int mouse_y, const int from_y, const Eigen::RowVector3d pt3D, igl::opengl::ViewerCore& core);
+void init_rest_shape();
 
 int main()
 {
@@ -105,22 +106,7 @@ int main()
 	pin_coord.resize(V_2D.rows());
 	v_down_pos.resize(V_2D.rows());
 
-	// Pre-compute triangle rest shapes in local coordinate systems
-	rest_shapes.resize(F.rows());
-	for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
-	{
-		// Express a, b, c in local 2D coordiante system
-		Eigen::Vector2d a = V_2D.row(F(f_idx, 0)).transpose();
-		Eigen::Vector2d b = V_2D.row(F(f_idx, 1)).transpose();
-		Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
-		Eigen::Vector2d e1 = b - a;
-		Eigen::Vector2d e2 = c - a;
-		e1 = Eigen::Vector2d(e1.dot(B1), e1.dot(B2));
-		e2 = Eigen::Vector2d(e2.dot(B1), e2.dot(B2));
-
-		// Save 2-by-2 matrix with edge vectors as colums
-		rest_shapes[f_idx] = TinyAD::col_mat(e1, e2);
-	};
+	init_rest_shape();
 
 	viewer.data().set_mesh(from_2D_to_3D(V_2D), F);
 	viewer.data().set_vertices(from_2D_to_3D(V_2D));
@@ -160,6 +146,7 @@ int main()
 			double axis_radians_angle = ((axis_degrees_angle * M_PI) / 180.0);
 			B1 = Eigen::RowVector2d(std::cos(axis_radians_angle), std::sin(axis_radians_angle)).normalized();
 			B2 = Eigen::RowVector2d(-1 * std::sin(axis_radians_angle), std::cos(axis_radians_angle)).normalized();
+			init_rest_shape();
 		}
 		ImGui::Checkbox("show_axis", &show_axis);
 		ImGui::Checkbox("show_bounding_box", &show_bounding_box);
@@ -347,6 +334,25 @@ int main()
 	}
 
 	return 0;
+}
+
+void init_rest_shape() {
+	// Pre-compute triangle rest shapes in local coordinate systems
+	rest_shapes.resize(F.rows());
+	for (int f_idx = 0; f_idx < F.rows(); ++f_idx)
+	{
+		// Express a, b, c in local 2D coordiante system
+		Eigen::Vector2d a = V_2D.row(F(f_idx, 0)).transpose();
+		Eigen::Vector2d b = V_2D.row(F(f_idx, 1)).transpose();
+		Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
+		Eigen::Vector2d e1 = b - a;
+		Eigen::Vector2d e2 = c - a;
+		e1 = Eigen::Vector2d(e1.dot(B1), e1.dot(B2));
+		e2 = Eigen::Vector2d(e2.dot(B1), e2.dot(B2));
+
+		// Save 2-by-2 matrix with edge vectors as colums
+		rest_shapes[f_idx] = TinyAD::col_mat(e1, e2);
+	};
 }
 
 inline Eigen::MatrixXd from_2D_to_3D(const Eigen::MatrixXd& V_2D) {
