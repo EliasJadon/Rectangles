@@ -3,6 +3,7 @@
 #include <igl/unproject_in_mesh.h>
 #include <igl/unproject_ray.h>
 #include <igl/rotate_vectors.h>
+#include <igl/boundary_loop.h>
 
 #include <igl/opengl/glfw/Viewer.h>
 #include <igl/opengl/glfw/imgui/ImGuiPlugin.h>
@@ -34,6 +35,7 @@
 Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
 Eigen::MatrixXi F;
 std::vector<Eigen::Matrix2d> rest_shapes;
+std::vector<int> boundary_vertices;
 Eigen::RowVector2d B2(0, 1);
 Eigen::RowVector2d B1(1, 0);
 float axis_degrees_angle = 0;
@@ -66,7 +68,7 @@ bool kill_optimizer_process = false;
 double SD_weight = 0.01;
 double RT_weight = 5;
 double pin_vertices_weight = 100;
-bool show_bounding_box = true;
+bool show_boundary = true;
 bool show_axis = true;
 bool show_rotate_per_face = true;
 bool show_max_angle_per_face = false;
@@ -96,6 +98,9 @@ int main()
 	}
 	V_2D_origin = V_3D.leftCols(2);
 	V_2D = V_2D_origin;
+	
+	// Calculate boundary vertices
+	igl::boundary_loop(F, boundary_vertices);
 
 	is_vertex_pinned.resize(V_2D.rows());
 	is_group_vertex.resize(V_2D.rows());
@@ -149,7 +154,7 @@ int main()
 			init_rest_shape();
 		}
 		ImGui::Checkbox("show_axis", &show_axis);
-		ImGui::Checkbox("show_bounding_box", &show_bounding_box);
+		ImGui::Checkbox("show_boundary", &show_boundary);
 		ImGui::Checkbox("show_rotate_per_face", &show_rotate_per_face);
 		ImGui::Checkbox("show_max_angle_per_face", &show_max_angle_per_face);
 		ImGui::Checkbox("show_output_data", &show_output_data);
@@ -455,49 +460,34 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 			axises.row(2),
 			RED_COLOR
 		);
+		
+		std::stringstream B1_text;
+		B1_text << "(" << B1(0) << ", " << B1(1) << ")";
+		viewer.data().add_label(Eigen::Vector3d(B1(0) + 0.1, B1(1) + 0.1, 0), B1_text.str());
+		std::stringstream B2_text;
+		B2_text << "(" << B2(0) << ", " << B2(1) << ")";
+		viewer.data().add_label(Eigen::Vector3d(B2(0) + 0.1, B2(1) + 0.1, 0), B2_text.str());
 	}
 	
-	// Add bounding box
-	if(show_bounding_box)
+	if(show_boundary)
 	{
-		static Eigen::Vector2d m = V_2D_origin.colwise().minCoeff();
-		static Eigen::Vector2d M = V_2D_origin.colwise().maxCoeff();
-
-		// Corners of the bounding box
-		Eigen::MatrixXd V_box(4, 3);
-		V_box <<
-			m(0), m(1), 0,
-			M(0), m(1), 0,
-			M(0), M(1), 0,
-			m(0), M(1), 0;
-
-		// Edges of the bounding box
-		Eigen::MatrixXi E_box(4, 2);
-		E_box <<
-			0, 1,
-			1, 2,
-			2, 3,
-			3, 0;
-
-		// Plot the corners of the bounding box as points
-		viewer.data().add_points(V_box, RED_COLOR);
-
-		// Plot the edges of the bounding box
-		for (unsigned i = 0; i < E_box.rows(); ++i) {
-			viewer.data().add_edges(
-				V_box.row(E_box(i, 0)),
-				V_box.row(E_box(i, 1)),
-				RED_COLOR
-			);
+		Eigen::MatrixXd V_3D = from_2D_to_3D(V_2D_origin);
+		for (int i = 0; i < boundary_vertices.size(); i++) {
+			if (i == (boundary_vertices.size() - 1)) {
+				viewer.data().add_edges(
+					V_3D.row(boundary_vertices[i]),
+					V_3D.row(boundary_vertices[0]),
+					RED_COLOR
+				);
+			}
+			else {
+				viewer.data().add_edges(
+					V_3D.row(boundary_vertices[i]),
+					V_3D.row(boundary_vertices[i + 1]),
+					RED_COLOR
+				);
+			}
 		}
-
-		// Plot labels with the coordinates of bounding box vertices
-		std::stringstream l1;
-		l1 << "(" << m(0) << ", " << m(1) << ")";
-		viewer.data().add_label(Eigen::Vector3d(m(0) - 0.1, m(1) - 0.1, 0), l1.str());
-		std::stringstream l2;
-		l2 << "(" << M(0) << ", " << M(1) << ")";
-		viewer.data().add_label(Eigen::Vector3d(M(0) + 0.1, M(1) + 0.1, 0), l2.str());
 	}
 
 	if (show_max_angle_per_face || show_rotate_per_face) 
