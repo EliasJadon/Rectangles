@@ -166,7 +166,7 @@ int main()
 		}
 		// Define next window position + size
 		ImGui::SetNextWindowPos(ImVec2(180.f * menu.menu_scaling(), 10), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(500, 160), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(500, 180), ImGuiCond_FirstUseEver);
 		ImGui::Begin(std::string("Face " + std::to_string(output_f)).c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings);
 		
 		Eigen::Vector2d a = V_2D.row(F(output_f, 0)).transpose();
@@ -211,6 +211,8 @@ int main()
 			ImGui::Text("V rotation angle (degrees) = %.4f (== {0,90,-90,180})\n", theta_angle_degrees);
 			ImGui::Text("x = %.4f (!= 0)\n", x);
 			ImGui::Text("y = %.4f (== 0)\n", y);
+			// Symmetric Dirichlet energy
+			ImGui::Text("Symmetric Dirichlet = %.4f\n", J.squaredNorm() + J.inverse().squaredNorm());
 		}
 
 		ImGui::End();
