@@ -2,6 +2,7 @@
 #include <igl/internal_angles.h>
 #include <igl/unproject_in_mesh.h>
 #include <igl/unproject_ray.h>
+#include <igl/rotate_vectors.h>
 
 #include <igl/opengl/glfw/Viewer.h>
 #include <igl/opengl/glfw/imgui/ImGuiPlugin.h>
@@ -18,6 +19,7 @@
 
 #include <igl/opengl/glfw/Viewer.h>
 #include <math.h>
+#include <cmath>
 #include <mutex>
 #include <thread>
 
@@ -34,6 +36,7 @@ Eigen::MatrixXi F;
 std::vector<Eigen::Matrix2d> rest_shapes;
 Eigen::RowVector2d B2(0, 1);
 Eigen::RowVector2d B1(1, 0);
+float axis_degrees_angle = 0;
 igl::opengl::glfw::Viewer viewer;
 
 std::vector<bool> is_vertex_pinned;
@@ -64,6 +67,7 @@ double SD_weight = 0.01;
 double RT_weight = 5;
 double pin_vertices_weight = 100;
 bool show_bounding_box = true;
+bool show_axis = true;
 bool show_rotate_per_face = true;
 bool show_max_angle_per_face = false;
 bool show_output_data = true;
@@ -150,6 +154,14 @@ int main()
 				pin_vertices_weight = std::max<double>(0, pin_vertices_weight);
 			}
 		}
+
+		if (ImGui::DragFloat("axis_degrees_angle", &axis_degrees_angle, 0.5f, -360.0f, 360.0f))
+		{
+			double axis_radians_angle = ((axis_degrees_angle * M_PI) / 180.0);
+			B1 = Eigen::RowVector2d(std::cos(axis_radians_angle), std::sin(axis_radians_angle)).normalized();
+			B2 = Eigen::RowVector2d(-1 * std::sin(axis_radians_angle), std::cos(axis_radians_angle)).normalized();
+		}
+		ImGui::Checkbox("show_axis", &show_axis);
 		ImGui::Checkbox("show_bounding_box", &show_bounding_box);
 		ImGui::Checkbox("show_rotate_per_face", &show_rotate_per_face);
 		ImGui::Checkbox("show_max_angle_per_face", &show_max_angle_per_face);
@@ -421,6 +433,24 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 		}
 	}
 
+	if (show_axis) {
+		Eigen::MatrixXd axises(3, 3);
+		axises <<
+			0, 0, 0,
+			B1(0), B1(1), 0,
+			B2(0), B2(1), 0;
+		viewer.data().add_edges(
+			axises.row(0),
+			axises.row(1),
+			RED_COLOR
+		);
+		viewer.data().add_edges(
+			axises.row(0),
+			axises.row(2),
+			RED_COLOR
+		);
+	}
+	
 	// Add bounding box
 	if(show_bounding_box)
 	{
