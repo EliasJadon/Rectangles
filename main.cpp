@@ -82,7 +82,7 @@ bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int modifier);
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y);
 bool pre_draw(igl::opengl::glfw::Viewer& viewer);
-Eigen::RowVector3d computeTranslation(const int mouse_x, const int from_x, const int mouse_y, const int from_y, const Eigen::RowVector3d pt3D, igl::opengl::ViewerCore& core);
+Eigen::RowVector3d compute2DTranslation(const int mouse_x, const int from_x, const int mouse_y, const int from_y, const Eigen::RowVector3d pt3D, igl::opengl::ViewerCore& core);
 void init_rest_shape();
 
 int main()
@@ -179,7 +179,7 @@ int main()
 		Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
 		Eigen::Matrix2d Mr = rest_shapes[output_f];
 		Eigen::Matrix2d J = M * Mr.inverse();
-		Eigen::JacobiSVD<Eigen::Matrix2d> svd;
+		Eigen::JacobiSVD<Eigen::MatrixXd> svd;
 		svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
 		Eigen::Matrix2d U = svd.matrixU();
 		Eigen::Matrix2d V = svd.matrixV();
@@ -278,8 +278,8 @@ int main()
 				return (T)INFINITY;
 
 			// Get constant 2D rest shape of f
-			Eigen::Matrix2d Mr = rest_shapes[f_idx];
-			double A = 0.5 * Mr.determinant();
+			Eigen::Matrix2<T> Mr = rest_shapes[f_idx];
+			T A = (T)0.5 * Mr.determinant();
 
 			// Compute symmetric Dirichlet energy
 			Eigen::Matrix2<T> J = M * Mr.inverse();
@@ -390,8 +390,7 @@ int get_vertex_from_mouse(Eigen::MatrixXd& V, Eigen::MatrixXi& F)
 	if (hits.size() > 0)
 	{
 		int fi = hits[0].id;
-		Eigen::RowVector3d bc;
-		bc << 1.0 - hits[0].u - hits[0].v, hits[0].u, hits[0].v;
+		Eigen::Vector3d bc(1.0 - hits[0].u - hits[0].v, hits[0].u, hits[0].v);
 		bc.maxCoeff(&vi);
 		vi = F(fi, vi);
 	}
@@ -500,7 +499,7 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 			Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
 			Eigen::Matrix2d Mr = rest_shapes[f_idx];
 			Eigen::Matrix2d J = M * Mr.inverse();
-			Eigen::JacobiSVD<Eigen::Matrix2d> svd;
+			Eigen::JacobiSVD<Eigen::MatrixXd> svd;
 			svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
 			Eigen::Matrix2d U = svd.matrixU();
 			Eigen::Matrix2d V = svd.matrixV();
@@ -575,7 +574,7 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 {
 	output_f = get_face_from_mouse(from_2D_to_3D(V_2D), F);
 	if (mouse_p.is_moving) {
-		Eigen::RowVector3d translation = computeTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, v_down_pos[mouse_p.active_v_idx], viewer.core());
+		Eigen::RowVector3d translation = compute2DTranslation(mouse_x, mouse_p.down_mouse_x, mouse_y, mouse_p.down_mouse_y, v_down_pos[mouse_p.active_v_idx], viewer.core());
 		mouse_p.down_mouse_x = mouse_x;
 		mouse_p.down_mouse_y = mouse_y;
 		if (mouse_p.mode == PICK_SINGLE_VERTEX) {
@@ -595,7 +594,7 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int mouse_x, int mouse_y)
 	return false;
 }
 
-Eigen::RowVector3d computeTranslation(
+Eigen::RowVector3d compute2DTranslation(
 	const int mouse_x,
 	const int from_x,
 	const int mouse_y,
@@ -604,14 +603,12 @@ Eigen::RowVector3d computeTranslation(
 	igl::opengl::ViewerCore& core)
 {
 	Eigen::Matrix4f modelview = core.view;
-	//project the given point (typically the handle centroid) to get a screen space depth
-	Eigen::Vector3f proj = igl::project(pt3D.transpose().cast<float>().eval(), modelview, core.proj, core.viewport);
-	float depth = proj[2];
 	double x, y;
 	Eigen::Vector3f pos1, pos0;
 	//unproject from- and to- points
 	x = mouse_x;
 	y = core.viewport(3) - mouse_y;
+	const float depth = 0.0f;
 	pos1 = igl::unproject(Eigen::Vector3f(x, y, depth), modelview, core.proj, core.viewport);
 	x = from_x;
 	y = core.viewport(3) - from_y;
@@ -622,29 +619,3 @@ Eigen::RowVector3d computeTranslation(
 	return Eigen::RowVector3d(translation(0), translation(1), translation(2));
 }
 
-void update_perpendicular_axis(Eigen::RowVector2d& B2, Eigen::RowVector2d& B1)
-{
-	const double epsilon = 0.001;
-	B2.normalize();
-
-	if (abs(B2(0)) < epsilon) {
-		if (B2(1) > 0) {
-			B2 = Eigen::RowVector2d(0, 1);
-			B1 = Eigen::RowVector2d(1, 0);
-		}
-		else {
-			B2 = Eigen::RowVector2d(0, -1);
-			B1 = Eigen::RowVector2d(-1, 0);
-		}
-		return;
-	}
-	
-	// Calculate the slope of a vector in 2D
-	double slope = B2(1) / B2(0);
-	double perpendicular_slope = -(1 / slope);
-
-	// Get the perpendicular axis
-	B1 = Eigen::RowVector2d(1, perpendicular_slope);
-	B1.normalize();
-	return;
-}
