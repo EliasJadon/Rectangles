@@ -32,9 +32,16 @@
 #    define M_PI 3.14159265358979323846
 #endif
 
+class rest_shape_data {
+public:
+	Eigen::Matrix2d Mr;
+	Eigen::Matrix2d Mr_inverse;
+	double Area;
+};
+
 Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
 Eigen::MatrixXi F;
-std::vector<Eigen::Matrix2d> rest_shapes;
+std::vector<rest_shape_data> rest_shapes;
 std::vector<int> boundary_vertices;
 Eigen::RowVector2d B2(0, 1);
 Eigen::RowVector2d B1(1, 0);
@@ -179,8 +186,7 @@ int main()
 		Eigen::Vector2d b = V_2D.row(F(output_f, 1)).transpose();
 		Eigen::Vector2d c = V_2D.row(F(output_f, 2)).transpose();
 		Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
-		Eigen::Matrix2d Mr = rest_shapes[output_f];
-		Eigen::Matrix2d J = M * Mr.inverse();
+		Eigen::Matrix2d J = M * rest_shapes[output_f].Mr_inverse;
 		Eigen::JacobiSVD<Eigen::MatrixXd> svd;
 		svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
 		Eigen::Matrix2d U = svd.matrixU();
@@ -283,7 +289,7 @@ int main()
 			//Eigen::Matrix2<T> Mr = rest_shapes[f_idx];
 			//T A = (T)0.5 * Mr.determinant();
 			// Get constant 2D rest shape of f
-			Eigen::Matrix2d Mr = rest_shapes[f_idx];
+			Eigen::Matrix2d Mr = rest_shapes[f_idx].Mr;
 			//double A = 0.5 * Mr.determinant();
 
 			// Compute symmetric Dirichlet energy
@@ -362,7 +368,9 @@ void init_rest_shape() {
 		e2 = Eigen::Vector2d(e2.dot(B1), e2.dot(B2));
 
 		// Save 2-by-2 matrix with edge vectors as colums
-		rest_shapes[f_idx] = TinyAD::col_mat(e1, e2);
+		rest_shapes[f_idx].Mr = TinyAD::col_mat(e1, e2);
+		rest_shapes[f_idx].Mr_inverse = rest_shapes[f_idx].Mr.inverse();
+		rest_shapes[f_idx].Area = 0.5 * rest_shapes[f_idx].Mr.determinant();
 	};
 }
 
@@ -503,8 +511,7 @@ bool pre_draw(igl::opengl::glfw::Viewer& viewer) {
 			Eigen::Vector2d c = V_2D.row(F(f_idx, 2)).transpose();
 			Eigen::Vector2d label_pos = (a + b + c) / 3;
 			Eigen::Matrix2d M = TinyAD::col_mat(b - a, c - a);
-			Eigen::Matrix2d Mr = rest_shapes[f_idx];
-			Eigen::Matrix2d J = M * Mr.inverse();
+			Eigen::Matrix2d J = M * rest_shapes[f_idx].Mr_inverse;
 			Eigen::JacobiSVD<Eigen::MatrixXd> svd;
 			svd.compute(J, Eigen::ComputeThinU | Eigen::ComputeThinV);
 			Eigen::Matrix2d U = svd.matrixU();
