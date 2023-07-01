@@ -285,23 +285,16 @@ int main()
 			if (M.determinant() <= 0.0)
 				return (T)INFINITY;
 
-			// Get constant 2D rest shape of f
-			//Eigen::Matrix2<T> Mr = rest_shapes[f_idx];
-			//T A = (T)0.5 * Mr.determinant();
-			// Get constant 2D rest shape of f
-			Eigen::Matrix2d Mr = rest_shapes[f_idx].Mr;
-			//double A = 0.5 * Mr.determinant();
-
 			// Compute symmetric Dirichlet energy
-			Eigen::Matrix2<T> J = M * Mr.inverse();
+			Eigen::Matrix2<T> J = M * rest_shapes[f_idx].Mr_inverse;
 
 			T result = 0;
 			// Rectangle energy
 			// A * (a*b+c*d)^2
-			result += RT_weight * (/*A * */ (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
+			result += RT_weight * (rest_shapes[f_idx].Area *  (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
 
 			// Symmetric Dirichlet energy
-			result += SD_weight * /*A **/ (J.squaredNorm() + J.inverse().squaredNorm());
+			result += SD_weight * rest_shapes[f_idx].Area * (J.squaredNorm() + J.inverse().squaredNorm());
 
 			return result;
 		});
