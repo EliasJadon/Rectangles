@@ -36,7 +36,7 @@ class rest_shape_data {
 public:
 	Eigen::Matrix2d Mr;
 	Eigen::Matrix2d Mr_inverse;
-	double Area;
+	double Triangle_Area;
 };
 
 Eigen::MatrixXd V_2D_origin, V_2D, V_3D;
@@ -291,10 +291,10 @@ int main()
 			T result = 0;
 			// Rectangle energy
 			// A * (a*b+c*d)^2
-			result += RT_weight * (rest_shapes[f_idx].Area *  (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
+			result += RT_weight * (rest_shapes[f_idx].Triangle_Area *  (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
 
 			// Symmetric Dirichlet energy
-			result += SD_weight * rest_shapes[f_idx].Area * (J.squaredNorm() + J.inverse().squaredNorm());
+			result += SD_weight * rest_shapes[f_idx].Triangle_Area * (J.squaredNorm() + J.inverse().squaredNorm());
 
 			return result;
 		});
@@ -363,7 +363,7 @@ void init_rest_shape() {
 		// Save 2-by-2 matrix with edge vectors as colums
 		rest_shapes[f_idx].Mr = TinyAD::col_mat(e1, e2);
 		rest_shapes[f_idx].Mr_inverse = rest_shapes[f_idx].Mr.inverse();
-		rest_shapes[f_idx].Area = 0.5 * rest_shapes[f_idx].Mr.determinant();
+		rest_shapes[f_idx].Triangle_Area = 0.5 * rest_shapes[f_idx].Mr.determinant();
 	};
 }
 
