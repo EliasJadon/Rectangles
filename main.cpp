@@ -57,6 +57,8 @@ public:
 	mouse_params() {
 		this->is_moving = false;
 		this->active_v_idx = -1;
+		this->down_mouse_x = -1;
+		this->down_mouse_y = -1;
 		this->mode = PICK_SINGLE_VERTEX;
 	}
 };
@@ -232,7 +234,7 @@ int main()
 		if (key == '1')
 		{
 			// Switch between original & current model
-			static int is_original_model = 0;
+			static bool is_original_model = 0;
 			viewer.data().set_vertices(is_original_model ? from_2D_to_3D(V_2D_origin) : from_2D_to_3D(V_2D));
 			is_original_model = !is_original_model;
 			return true;
@@ -278,8 +280,11 @@ int main()
 				return (T)INFINITY;
 
 			// Get constant 2D rest shape of f
-			Eigen::Matrix2<T> Mr = rest_shapes[f_idx];
-			T A = (T)0.5 * Mr.determinant();
+			//Eigen::Matrix2<T> Mr = rest_shapes[f_idx];
+			//T A = (T)0.5 * Mr.determinant();
+			// Get constant 2D rest shape of f
+			Eigen::Matrix2d Mr = rest_shapes[f_idx];
+			//double A = 0.5 * Mr.determinant();
 
 			// Compute symmetric Dirichlet energy
 			Eigen::Matrix2<T> J = M * Mr.inverse();
@@ -287,10 +292,10 @@ int main()
 			T result = 0;
 			// Rectangle energy
 			// A * (a*b+c*d)^2
-			result += RT_weight * (A * (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
+			result += RT_weight * (/*A * */ (J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1))*(J(0, 0)*J(0, 1) + J(1, 0) * J(1, 1)));
 
 			// Symmetric Dirichlet energy
-			result += SD_weight * A * (J.squaredNorm() + J.inverse().squaredNorm());
+			result += SD_weight * /*A **/ (J.squaredNorm() + J.inverse().squaredNorm());
 
 			return result;
 		});
@@ -320,6 +325,7 @@ int main()
 		while (!kill_optimizer_process) {
 			if(run_optimizer)
 			{
+				//run_optimizer = false;
 				auto[f, g, H_proj] = func.eval_with_hessian_proj(x);
 				TINYAD_DEBUG_OUT("Energy in iteration " << i++ << ": " << f);
 				Eigen::VectorXd d = TinyAD::newton_direction(g, H_proj, solver);
