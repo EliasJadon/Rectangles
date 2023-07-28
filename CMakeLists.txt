@@ -14,8 +14,8 @@ igl_include(imgui)
 include(FetchContent)
 FetchContent_Declare(
   tinyad
-  GIT_REPOSITORY https://github.com/patr-schm/tinyad.git
-  GIT_TAG 75093e14ef0d7bb39657c5f3b2aba1251afaa38c
+  GIT_REPOSITORY https://github.com/EliasJadon/TinyAD.git
+  GIT_TAG main
 )
 FetchContent_MakeAvailable(tinyad)
 
